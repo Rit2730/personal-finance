@@ -2,151 +2,174 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import date
+import math
 
-# ------------------ BASIC SETUP ------------------
-st.set_page_config(
-    page_title="Personal Finance Manager",
-    layout="wide"
-)
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="Personal Finance Manager", layout="wide")
 
-st.title("Personal Finance Management System")
-st.caption("Income | Expenses | Investments | Loans — Unified Dashboard")
+st.markdown("""
+<style>
+body { background-color: #0e1117; }
+[data-testid="stMetric"] {
+    background-color: #161b22;
+    padding: 15px;
+    border-radius: 12px;
+}
+</style>
+""", unsafe_allow_html=True)
 
-USERS = ["Ritika", "Himanshu", "Seema"]
+st.title("Personal Finance Dashboard")
+st.caption("Professional personal finance tracking system")
+
+USERS = ["All", "Ritika", "Himanshu", "Seema"]
 
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 FILES = {
-    "income": f"{DATA_DIR}/income.csv",
-    "expenses": f"{DATA_DIR}/expenses.csv",
-    "investments": f"{DATA_DIR}/investments.csv",
-    "loans": f"{DATA_DIR}/loans.csv"
+    "income": "data/income.csv",
+    "expenses": "data/expenses.csv",
+    "investments": "data/investments.csv",
+    "loans": "data/loans.csv"
 }
 
 SCHEMAS = {
-    "income": ["Date", "Person", "Type", "Amount"],
+    "income": ["Date", "Person", "Income Type", "Amount"],
     "expenses": ["Date", "Person", "Category", "Amount"],
-    "investments": ["Date", "Person", "Instrument", "Amount"],
+    "investments": ["Date", "Person", "Investment Type", "Amount"],
     "loans": ["Date", "Person", "Loan Type", "Amount", "Status"]
 }
 
-# ------------------ FILE INITIALIZATION ------------------
 def init_file(file, cols):
     if not os.path.exists(file):
         pd.DataFrame(columns=cols).to_csv(file, index=False)
 
-for key in FILES:
-    init_file(FILES[key], SCHEMAS[key])
+for k in FILES:
+    init_file(FILES[k], SCHEMAS[k])
 
-# ------------------ LOAD DATA ------------------
-income_df = pd.read_csv(FILES["income"])
-expense_df = pd.read_csv(FILES["expenses"])
-invest_df = pd.read_csv(FILES["investments"])
-loan_df = pd.read_csv(FILES["loans"])
+income = pd.read_csv(FILES["income"])
+expenses = pd.read_csv(FILES["expenses"])
+investments = pd.read_csv(FILES["investments"])
+loans = pd.read_csv(FILES["loans"])
 
-# ------------------ SIDEBAR NAV ------------------
-menu = st.sidebar.selectbox(
-    "Select Section",
-    ["Dashboard", "Add Income", "Add Expense", "Add Investment", "Loans"]
+# ---------------- SIDEBAR ----------------
+section = st.sidebar.selectbox(
+    "Navigation",
+    ["Dashboard", "Income", "Expenses", "Investments", "Loans", "Calculators"]
 )
 
-# ======================================================
-# DASHBOARD
-# ======================================================
-if menu == "Dashboard":
-    st.subheader("📊 Overview")
+user_filter = st.sidebar.selectbox("Select User", USERS)
 
-    col1, col2, col3, col4 = st.columns(4)
+def filter_df(df):
+    if user_filter == "All":
+        return df
+    return df[df["Person"] == user_filter]
 
-    col1.metric("Total Income", f"₹ {income_df['Amount'].sum():,.2f}")
-    col2.metric("Total Expenses", f"₹ {expense_df['Amount'].sum():,.2f}")
-    col3.metric("Total Investments", f"₹ {invest_df['Amount'].sum():,.2f}")
+# ---------------- DASHBOARD ----------------
+if section == "Dashboard":
+    st.subheader("Overview")
 
-    active_loans = loan_df[loan_df["Status"] == "Open"]["Amount"].sum()
-    col4.metric("Active Loans", f"₹ {active_loans:,.2f}")
+    inc = filter_df(income)
+    exp = filter_df(expenses)
+    inv = filter_df(investments)
+    ln = filter_df(loans)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Income", f"₹ {inc['Amount'].sum():,.0f}")
+    c2.metric("Expenses", f"₹ {exp['Amount'].sum():,.0f}")
+    c3.metric("Investments", f"₹ {inv['Amount'].sum():,.0f}")
+    c4.metric("Active Loans", f"₹ {ln[ln['Status']=='Open']['Amount'].sum():,.0f}")
 
     st.divider()
 
-    st.subheader("Person-wise Investments")
-    if not invest_df.empty:
-        st.bar_chart(invest_df.groupby("Person")["Amount"].sum())
+    col1, col2 = st.columns(2)
 
-# ======================================================
-# ADD INCOME
-# ======================================================
-elif menu == "Add Income":
-    st.subheader("➕ Add Income")
+    if not inc.empty:
+        col1.subheader("Income Composition")
+        col1.pyplot(
+            inc.groupby("Income Type")["Amount"].sum().plot.pie(autopct='%1.0f%%').figure
+        )
 
-    person = st.selectbox("Person", USERS)
-    income_type = st.selectbox("Income Type", ["Salary", "Bonus", "Interest", "Other"])
-    amount = st.number_input("Amount", min_value=0.0)
-    inc_date = st.date_input("Date", date.today())
+    if not inv.empty:
+        col2.subheader("Investment Allocation")
+        col2.pyplot(
+            inv.groupby("Investment Type")["Amount"].sum().plot.pie(autopct='%1.0f%%').figure
+        )
+
+# ---------------- INCOME ----------------
+elif section == "Income":
+    st.subheader("Add Income")
+
+    person = st.selectbox("Person", USERS[1:])
+    itype = st.selectbox("Income Type", ["Salary", "Freelance", "Interest", "Bonus", "Other"])
+    amt = st.number_input("Amount", min_value=0.0)
+    dt = st.date_input("Date", date.today())
 
     if st.button("Save Income"):
-        income_df.loc[len(income_df)] = [inc_date, person, income_type, amount]
-        income_df.to_csv(FILES["income"], index=False)
-        st.success("Income recorded successfully")
+        income.loc[len(income)] = [dt, person, itype, amt]
+        income.to_csv(FILES["income"], index=False)
+        st.success("Income added")
 
-    st.dataframe(income_df)
+    st.dataframe(income)
 
-# ======================================================
-# ADD EXPENSE
-# ======================================================
-elif menu == "Add Expense":
-    st.subheader("➖ Add Expense")
+# ---------------- EXPENSE ----------------
+elif section == "Expenses":
+    st.subheader("Add Expense")
 
-    person = st.selectbox("Person", USERS)
-    category = st.selectbox(
-        "Category",
-        ["Food", "Rent", "Travel", "Shopping", "Bills", "Other"]
-    )
-    amount = st.number_input("Amount", min_value=0.0)
-    exp_date = st.date_input("Date", date.today())
+    person = st.selectbox("Person", USERS[1:])
+    cat = st.text_input("Category")
+    amt = st.number_input("Amount", min_value=0.0)
+    dt = st.date_input("Date", date.today())
 
     if st.button("Save Expense"):
-        expense_df.loc[len(expense_df)] = [exp_date, person, category, amount]
-        expense_df.to_csv(FILES["expenses"], index=False)
-        st.success("Expense recorded successfully")
+        expenses.loc[len(expenses)] = [dt, person, cat, amt]
+        expenses.to_csv(FILES["expenses"], index=False)
+        st.success("Expense added")
 
-    st.dataframe(expense_df)
+    st.dataframe(expenses)
 
-# ======================================================
-# ADD INVESTMENT
-# ======================================================
-elif menu == "Add Investment":
-    st.subheader("📈 Add Investment")
+# ---------------- INVESTMENTS ----------------
+elif section == "Investments":
+    st.subheader("Add Investment")
 
-    person = st.selectbox("Person", USERS)
-    instrument = st.selectbox(
-        "Instrument",
-        ["FD", "RD", "Mutual Fund", "Stocks", "PPF", "LIC"]
-    )
-    amount = st.number_input("Amount", min_value=0.0)
-    inv_date = st.date_input("Date", date.today())
+    person = st.selectbox("Person", USERS[1:])
+    inv_type = st.text_input("Investment Type (MF, ETF, FD, PPF, etc)")
+    amt = st.number_input("Amount", min_value=0.0)
+    dt = st.date_input("Date", date.today())
 
     if st.button("Save Investment"):
-        invest_df.loc[len(invest_df)] = [inv_date, person, instrument, amount]
-        invest_df.to_csv(FILES["investments"], index=False)
-        st.success("Investment recorded successfully")
+        investments.loc[len(investments)] = [dt, person, inv_type, amt]
+        investments.to_csv(FILES["investments"], index=False)
+        st.success("Investment added")
 
-    st.dataframe(invest_df)
+    st.dataframe(investments)
 
-# ======================================================
-# LOANS
-# ======================================================
-elif menu == "Loans":
-    st.subheader("🤝 Loans (Lent / Borrowed)")
+# ---------------- LOANS ----------------
+elif section == "Loans":
+    st.subheader("Loans Tracking")
 
-    person = st.selectbox("Person", USERS)
-    loan_type = st.selectbox("Loan Type", ["Lent", "Borrowed"])
-    amount = st.number_input("Amount", min_value=0.0)
+    person = st.selectbox("Person", USERS[1:])
+    ltype = st.selectbox("Loan Type", ["Lent", "Borrowed"])
+    amt = st.number_input("Amount", min_value=0.0)
     status = st.selectbox("Status", ["Open", "Closed"])
-    loan_date = st.date_input("Date", date.today())
+    dt = st.date_input("Date", date.today())
 
-    if st.button("Save Loan Entry"):
-        loan_df.loc[len(loan_df)] = [loan_date, person, loan_type, amount, status]
-        loan_df.to_csv(FILES["loans"], index=False)
-        st.success("Loan entry saved")
+    if st.button("Save Loan"):
+        loans.loc[len(loans)] = [dt, person, ltype, amt, status]
+        loans.to_csv(FILES["loans"], index=False)
+        st.success("Loan saved")
 
-    st.dataframe(loan_df)
+    st.dataframe(loans)
+
+# ---------------- CALCULATORS ----------------
+elif section == "Calculators":
+    st.subheader("Investment & Interest Calculators")
+
+    st.markdown("### Compound Interest")
+    p = st.number_input("Principal", min_value=0.0)
+    r = st.number_input("Rate (%)", min_value=0.0)
+    t = st.number_input("Years", min_value=0.0)
+
+    if st.button("Calculate CI"):
+        fv = p * ((1 + r/100) ** t)
+        st.success(f"Future Value: ₹ {fv:,.2f}")
