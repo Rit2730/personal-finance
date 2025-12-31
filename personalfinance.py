@@ -2,24 +2,12 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import date
-import math
+import matplotlib.pyplot as plt
 
-# ---------------- CONFIG ----------------
 st.set_page_config(page_title="Personal Finance Manager", layout="wide")
 
-st.markdown("""
-<style>
-body { background-color: #0e1117; }
-[data-testid="stMetric"] {
-    background-color: #161b22;
-    padding: 15px;
-    border-radius: 12px;
-}
-</style>
-""", unsafe_allow_html=True)
-
 st.title("Personal Finance Dashboard")
-st.caption("Professional personal finance tracking system")
+st.caption("Professional personal finance system")
 
 USERS = ["All", "Ritika", "Himanshu", "Seema"]
 
@@ -40,9 +28,9 @@ SCHEMAS = {
     "loans": ["Date", "Person", "Loan Type", "Amount", "Status"]
 }
 
-def init_file(file, cols):
-    if not os.path.exists(file):
-        pd.DataFrame(columns=cols).to_csv(file, index=False)
+def init_file(path, cols):
+    if not os.path.exists(path):
+        pd.DataFrame(columns=cols).to_csv(path, index=False)
 
 for k in FILES:
     init_file(FILES[k], SCHEMAS[k])
@@ -52,33 +40,33 @@ expenses = pd.read_csv(FILES["expenses"])
 investments = pd.read_csv(FILES["investments"])
 loans = pd.read_csv(FILES["loans"])
 
-# ---------------- SIDEBAR ----------------
+st.sidebar.title("Navigation")
 section = st.sidebar.selectbox(
-    "Navigation",
+    "Section",
     ["Dashboard", "Income", "Expenses", "Investments", "Loans", "Calculators"]
 )
+user = st.sidebar.selectbox("User", USERS)
 
-user_filter = st.sidebar.selectbox("Select User", USERS)
+def f(df):
+    return df if user == "All" else df[df["Person"] == user]
 
-def filter_df(df):
-    if user_filter == "All":
-        return df
-    return df[df["Person"] == user_filter]
-
-# ---------------- DASHBOARD ----------------
+# ================= DASHBOARD =================
 if section == "Dashboard":
-    st.subheader("Overview")
+    inc, exp, inv, ln = f(income), f(expenses), f(investments), f(loans)
 
-    inc = filter_df(income)
-    exp = filter_df(expenses)
-    inv = filter_df(investments)
-    ln = filter_df(loans)
+    net_worth = (
+        inc["Amount"].sum()
+        - exp["Amount"].sum()
+        + inv["Amount"].sum()
+        + ln[(ln["Loan Type"]=="Lent") & (ln["Status"]=="Open")]["Amount"].sum()
+        - ln[(ln["Loan Type"]=="Borrowed") & (ln["Status"]=="Open")]["Amount"].sum()
+    )
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Income", f"₹ {inc['Amount'].sum():,.0f}")
     c2.metric("Expenses", f"₹ {exp['Amount'].sum():,.0f}")
     c3.metric("Investments", f"₹ {inv['Amount'].sum():,.0f}")
-    c4.metric("Active Loans", f"₹ {ln[ln['Status']=='Open']['Amount'].sum():,.0f}")
+    c4.metric("Net Worth", f"₹ {net_worth:,.0f}")
 
     st.divider()
 
@@ -86,90 +74,95 @@ if section == "Dashboard":
 
     if not inc.empty:
         col1.subheader("Income Composition")
-        col1.pyplot(
-            inc.groupby("Income Type")["Amount"].sum().plot.pie(autopct='%1.0f%%').figure
+        fig, ax = plt.subplots()
+        inc.groupby("Income Type")["Amount"].sum().plot.pie(
+            autopct="%1.0f%%", ax=ax
         )
+        ax.set_ylabel("")
+        col1.pyplot(fig)
 
     if not inv.empty:
         col2.subheader("Investment Allocation")
-        col2.pyplot(
-            inv.groupby("Investment Type")["Amount"].sum().plot.pie(autopct='%1.0f%%').figure
+        fig, ax = plt.subplots()
+        inv.groupby("Investment Type")["Amount"].sum().plot.pie(
+            autopct="%1.0f%%", ax=ax
         )
+        ax.set_ylabel("")
+        col2.pyplot(fig)
 
-# ---------------- INCOME ----------------
+# ================= INCOME =================
 elif section == "Income":
     st.subheader("Add Income")
 
-    person = st.selectbox("Person", USERS[1:])
-    itype = st.selectbox("Income Type", ["Salary", "Freelance", "Interest", "Bonus", "Other"])
-    amt = st.number_input("Amount", min_value=0.0)
-    dt = st.date_input("Date", date.today())
+    p = st.selectbox("Person", USERS[1:])
+    t = st.selectbox("Income Type", ["Salary","Freelance","Interest","Bonus","Other"])
+    a = st.number_input("Amount", min_value=0.0)
+    d = st.date_input("Date", date.today())
 
-    if st.button("Save Income"):
-        income.loc[len(income)] = [dt, person, itype, amt]
+    if st.button("Save"):
+        income.loc[len(income)] = [d,p,t,a]
         income.to_csv(FILES["income"], index=False)
-        st.success("Income added")
+        st.success("Income saved")
 
     st.dataframe(income)
 
-# ---------------- EXPENSE ----------------
+# ================= EXPENSE =================
 elif section == "Expenses":
     st.subheader("Add Expense")
 
-    person = st.selectbox("Person", USERS[1:])
-    cat = st.text_input("Category")
-    amt = st.number_input("Amount", min_value=0.0)
-    dt = st.date_input("Date", date.today())
+    p = st.selectbox("Person", USERS[1:])
+    c = st.text_input("Category")
+    a = st.number_input("Amount", min_value=0.0)
+    d = st.date_input("Date", date.today())
 
-    if st.button("Save Expense"):
-        expenses.loc[len(expenses)] = [dt, person, cat, amt]
+    if st.button("Save"):
+        expenses.loc[len(expenses)] = [d,p,c,a]
         expenses.to_csv(FILES["expenses"], index=False)
-        st.success("Expense added")
+        st.success("Expense saved")
 
     st.dataframe(expenses)
 
-# ---------------- INVESTMENTS ----------------
+# ================= INVESTMENTS =================
 elif section == "Investments":
     st.subheader("Add Investment")
 
-    person = st.selectbox("Person", USERS[1:])
-    inv_type = st.text_input("Investment Type (MF, ETF, FD, PPF, etc)")
-    amt = st.number_input("Amount", min_value=0.0)
-    dt = st.date_input("Date", date.today())
+    p = st.selectbox("Person", USERS[1:])
+    i = st.text_input("Investment Type (MF, ETF, FD, PPF, etc)")
+    a = st.number_input("Amount", min_value=0.0)
+    d = st.date_input("Date", date.today())
 
-    if st.button("Save Investment"):
-        investments.loc[len(investments)] = [dt, person, inv_type, amt]
+    if st.button("Save"):
+        investments.loc[len(investments)] = [d,p,i,a]
         investments.to_csv(FILES["investments"], index=False)
-        st.success("Investment added")
+        st.success("Investment saved")
 
     st.dataframe(investments)
 
-# ---------------- LOANS ----------------
+# ================= LOANS =================
 elif section == "Loans":
-    st.subheader("Loans Tracking")
+    st.subheader("Loans")
 
-    person = st.selectbox("Person", USERS[1:])
-    ltype = st.selectbox("Loan Type", ["Lent", "Borrowed"])
-    amt = st.number_input("Amount", min_value=0.0)
-    status = st.selectbox("Status", ["Open", "Closed"])
-    dt = st.date_input("Date", date.today())
+    p = st.selectbox("Person", USERS[1:])
+    t = st.selectbox("Type", ["Lent","Borrowed"])
+    a = st.number_input("Amount", min_value=0.0)
+    s = st.selectbox("Status", ["Open","Closed"])
+    d = st.date_input("Date", date.today())
 
-    if st.button("Save Loan"):
-        loans.loc[len(loans)] = [dt, person, ltype, amt, status]
+    if st.button("Save"):
+        loans.loc[len(loans)] = [d,p,t,a,s]
         loans.to_csv(FILES["loans"], index=False)
         st.success("Loan saved")
 
     st.dataframe(loans)
 
-# ---------------- CALCULATORS ----------------
+# ================= CALCULATORS =================
 elif section == "Calculators":
-    st.subheader("Investment & Interest Calculators")
+    st.subheader("Interest Calculators")
 
-    st.markdown("### Compound Interest")
     p = st.number_input("Principal", min_value=0.0)
     r = st.number_input("Rate (%)", min_value=0.0)
     t = st.number_input("Years", min_value=0.0)
 
-    if st.button("Calculate CI"):
+    if st.button("Compound Interest"):
         fv = p * ((1 + r/100) ** t)
         st.success(f"Future Value: ₹ {fv:,.2f}")
